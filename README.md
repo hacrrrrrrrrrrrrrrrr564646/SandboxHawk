@@ -8,6 +8,7 @@
 - Applies lightweight source mutations and runs a local `d8` subprocess with a timeout.
 - Caps captured output, retains behaviorally novel testcases, and deduplicates candidate crashes.
 - Writes `findings.json`, `REPORT.md`, and testcase artifacts.
+- Includes a line-based delta-debugging minimizer that preserves the observed failure class.
 - Uses only Go's standard library.
 
 ## Quick start
@@ -18,6 +19,12 @@ Install Go, build or obtain a local V8 `d8` binary that you are authorized to te
 go test ./...
 go build -o sandboxhawk .
 ./sandboxhawk scan -d8 /absolute/path/to/d8 -corpus ./testdata/seeds -out ./artifacts -runs 1000 -timeout 2s
+```
+
+Minimize a saved candidate by repeatedly removing line chunks while checking that the failure class and normalized output remain stable:
+
+```sh
+./sandboxhawk minimize -d8 ./v8/out/x64.release/d8 -input ./artifacts/crashes/sanitizer-abc.js -out ./artifacts/minimized.js
 ```
 
 If `d8` is on your PATH, `-d8 d8` works. Import additional seed files by placing them in a corpus directory:
@@ -55,6 +62,6 @@ The V8 corpus/source-loader code you shared is used as a design reference for se
 - [x] JSON and Markdown reports
 - [ ] Native edge-coverage feedback adapter
 - [ ] Persistent SQLite corpus and scheduling
-- [ ] Reproduction-preserving testcase minimization
+- [x] Basic line-based reproduction-preserving testcase minimization
 - [ ] Optional AST parser/dependency loader
 - [ ] CI smoke tests and reproducible release builds
