@@ -6,6 +6,8 @@
 
 - Recursively discovers JavaScript seeds from V8/Fuzzilli-style corpus folders.
 - Applies lightweight source mutations and runs a local `d8` subprocess with a timeout.
+- Re-runs each crash/timeout/sanitizer candidate (3 total attempts by default) and reports it only when the failure reproduces consistently.
+- Requires a failing process plus a canonical sanitizer diagnostic; ordinary JS exceptions and sanitizer-looking text are not enough.
 - Caps captured output, retains behaviorally novel testcases, and deduplicates candidate crashes.
 - Writes `findings.json`, `REPORT.md`, and testcase artifacts.
 - Includes a line-based delta-debugging minimizer that preserves the observed failure class.
@@ -18,7 +20,7 @@ Install Go, build or obtain a local V8 `d8` binary that you are authorized to te
 ```sh
 go test ./...
 go build -o sandboxhawk .
-./sandboxhawk scan -d8 /absolute/path/to/d8 -corpus ./testdata/seeds -out ./artifacts -runs 1000 -timeout 2s
+./sandboxhawk scan -d8 /absolute/path/to/d8 -corpus ./testdata/seeds -out ./artifacts -runs 1000 -timeout 2s -confirmations 3
 ```
 
 Minimize a saved candidate by repeatedly removing line chunks while checking that the failure class and normalized output remain stable:
@@ -40,7 +42,7 @@ If `d8` is on your PATH, `-d8 d8` works. Import additional seed files by placing
 - `artifacts/findings.json`: machine-readable candidate findings.
 - `artifacts/REPORT.md`: human-readable summary.
 
-A normal JavaScript exception is **not** automatically treated as a native crash. Sanitizer messages are separately tagged. Each finding is only a candidate until it can be reproduced and investigated.
+A normal JavaScript exception is **not** automatically treated as a native crash. Sanitizer output must match a canonical diagnostic and accompany a non-zero process exit. Each crash/timeout/sanitizer candidate is re-run three times by default; inconsistent results are dropped as unconfirmed. Set `-confirmations 2..10` to change the required total attempts. This reduces false positives but cannot guarantee zero false positives, and a confirmed crash is still not proof of a sandbox escape.
 
 ## Honest coverage status
 
@@ -58,7 +60,7 @@ The V8 corpus/source-loader code you shared is used as a design reference for se
 
 - [x] Go CLI and local `d8` runner
 - [x] Seed discovery and basic JS mutations
-- [x] Timeout, sanitizer-output and crash candidate triage
+- [x] Timeout, sanitizer-output and crash candidate triage with reproducibility confirmation
 - [x] JSON and Markdown reports
 - [ ] Native edge-coverage feedback adapter
 - [ ] Persistent SQLite corpus and scheduling
