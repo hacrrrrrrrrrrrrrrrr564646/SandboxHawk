@@ -62,6 +62,9 @@ func TestSandboxDiagnosticClassification(t *testing.T) {
 	if got := classifyOutput("ok", 0, diagnostic); got != "ok" {
 		t.Fatalf("successful process must not be classified: %q", got)
 	}
+	if got := classifyOutput("exception", 1, diagnostic); got != "exception" {
+		t.Fatalf("ordinary JavaScript exception must not be classified as a sandbox violation, got %q", got)
+	}
 	if got := classifyOutput("crash", 1, diagnostic); got != "sandbox_violation" {
 		t.Fatalf("recognized diagnostic on failing process should be separately classified, got %q", got)
 	}
