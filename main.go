@@ -44,7 +44,7 @@ type Result struct {
 	duration                time.Duration
 }
 
-var sanitizerPattern = regexp.MustCompile(`(?i)(AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:|CHECK failed|DCHECK failed|fatal error|sandbox violation|sandbox.*corrupt|out of bounds.*sandbox)`)
+var sanitizerPattern = regexp.MustCompile(`(?im)(^==[0-9]+==ERROR: AddressSanitizer:|^SUMMARY: AddressSanitizer:|^.*runtime error: [[:alnum:]_]|^FATAL: ThreadSanitizer:|^CHECK failed:|^DCHECK failed:|^Received signal [0-9]+)`)
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "help" || os.Args[1] == "-h" {
@@ -346,11 +346,14 @@ func execute(binary, testcase string, timeout time.Duration) Result {
 	res.output = output.String()
 	// Text alone is not enough: JS can print sanitizer-looking strings.
 	// Require a non-zero exit before classifying a sanitizer diagnostic.
-	if res.exitCode != 0 && sanitizerPattern.MatchString(res.output) {
-		res.kind = "sanitizer"
-	}
+	res.kind = classifyOutput(res.kind, res.exitCode, res.output)
 	res.signature = hashString(res.kind + "|" + normalizeOutput(res.output) + "|" + fmt.Sprint(res.exitCode))
 	return res
+}
+
+func classifyOutput(currentKind string, exitCode int, output string) string {
+	if exitCode != 0 && sanitizerPattern.MatchString(output) { return "sanitizer" }
+	return currentKind
 }
 
 func isCandidateFailure(r Result) bool {
