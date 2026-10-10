@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -252,7 +253,13 @@ func execute(binary, testcase string, timeout time.Duration) Result {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			res.exitCode = ee.ExitCode()
-			if runtime.GOOS != "windows" && res.exitCode >= 128 {
+			signaled := false
+			if runtime.GOOS != "windows" {
+				if status, ok := ee.Sys().(syscall.WaitStatus); ok {
+					signaled = status.Signaled()
+				}
+			}
+			if signaled {
 				res.kind = "crash"
 			} else if res.exitCode != 0 {
 				// d8 commonly exits non-zero for a JS exception. Only classify
