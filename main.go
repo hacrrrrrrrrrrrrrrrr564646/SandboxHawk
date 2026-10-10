@@ -377,6 +377,7 @@ func confirmFailure(binary, testcase string, baseline Result, timeout time.Durat
 		outputs = append(outputs, next.output)
 	}
 	return true, strings.Join(outputs, "\\n--- confirmed retry ---\\n")
+}
 
 type limitWriter struct { w io.Writer; remaining int }
 func (l *limitWriter) Write(p []byte) (int, error) {
