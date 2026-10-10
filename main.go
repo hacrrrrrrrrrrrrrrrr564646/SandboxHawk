@@ -45,6 +45,8 @@ type Result struct {
 }
 
 var sanitizerPattern = regexp.MustCompile(`(?im)(^==[0-9]+==ERROR: AddressSanitizer:|^SUMMARY: AddressSanitizer:|^.*runtime error: [[:alnum:]_]|^FATAL: ThreadSanitizer:|^CHECK failed:|^DCHECK failed:|^Received signal [0-9]+)`)
+var sanitizerPIDPattern = regexp.MustCompile(`==[0-9]+==`)
+var addressPattern = regexp.MustCompile(`0x[0-9a-fA-F]{6,}`)
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "help" || os.Args[1] == "-h" {
@@ -393,6 +395,8 @@ func (l *limitWriter) Write(p []byte) (int, error) {
 }
 
 func normalizeOutput(s string) string {
+	s = sanitizerPIDPattern.ReplaceAllString(s, "==PID==")
+	s = addressPattern.ReplaceAllString(s, "0xADDR")
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
