@@ -124,7 +124,7 @@ func scan(args []string) error {
 	crashCount, novelCount := 0, 0
 	fmt.Printf("SandboxHawk | seeds=%d runs=%d timeout=%s\n", len(seeds), *runs, *timeout)
 	fmt.Println("Feedback: behavioral signatures (not native edge coverage).")
-	fmt.Printf("Triage: each candidate must reproduce identically in %d total runs.\\n", *confirmations)
+	fmt.Printf("Triage: each candidate must reproduce identically in %d total runs.\n", *confirmations)
 
 	for i := 0; i < *runs; i++ {
 		base := seeds[rng.Intn(len(seeds))]
@@ -151,7 +151,7 @@ func scan(args []string) error {
 		if isCandidateFailure(res) {
 			confirmed, confirmationOutput := confirmFailure(binary, tmp.Name(), res, *timeout, *confirmations)
 			if !confirmed {
-				fmt.Printf("[unconfirmed] run=%d kind=%s seed=%s\\n", i+1, res.kind, filepath.Base(base.path))
+				fmt.Printf("[unconfirmed] run=%d kind=%s seed=%s\n", i+1, res.kind, filepath.Base(base.path))
 			} else {
 				crashSig := findingSignature(res)
 				if !seenCrash[crashSig] {
@@ -165,7 +165,7 @@ func scan(args []string) error {
 						Duration: res.duration.String(), CreatedAt: time.Now().UTC()}
 					if *keepOutput { f.Output = truncate(confirmationOutput, 8000) }
 					findings = append(findings, f)
-					fmt.Printf("[confirmed-%s] run=%d seed=%s signature=%s\\n", res.kind, i+1, filepath.Base(base.path), f.ID)
+					fmt.Printf("[confirmed-%s] run=%d seed=%s signature=%s\n", res.kind, i+1, filepath.Base(base.path), f.ID)
 				}
 			}
 		}
@@ -372,14 +372,14 @@ func confirmFailure(binary, testcase string, baseline Result, timeout time.Durat
 	for i := 1; i < totalRuns; i++ {
 		next := execute(binary, testcase, timeout)
 		if !sameFailure(baseline, next) {
-			return false, strings.Join(outputs, "\\n--- retry ---\\n")
+			return false, strings.Join(outputs, "\n--- retry ---\n")
 		}
 		if baseline.kind != "timeout" && findingSignature(baseline) != findingSignature(next) {
-			return false, strings.Join(outputs, "\\n--- retry ---\\n")
+			return false, strings.Join(outputs, "\n--- retry ---\n")
 		}
 		outputs = append(outputs, next.output)
 	}
-	return true, strings.Join(outputs, "\\n--- confirmed retry ---\\n")
+	return true, strings.Join(outputs, "\n--- confirmed retry ---\n")
 }
 
 type limitWriter struct { w io.Writer; remaining int }
