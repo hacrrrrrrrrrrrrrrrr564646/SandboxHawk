@@ -8,6 +8,7 @@
 - Applies lightweight source mutations and runs a local `d8` subprocess with a timeout.
 - Re-runs each crash/timeout/sanitizer candidate (3 total attempts by default) and reports it only when the failure reproduces consistently.
 - Requires a failing process plus a canonical sanitizer diagnostic; ordinary JS exceptions and sanitizer-looking text are not enough.
+- Separately labels recognized V8 sandbox-violation diagnostics as `sandbox_violation` when the process terminates as a native crash.
 - Caps captured output, retains behaviorally novel testcases, and deduplicates candidate crashes.
 - Writes `findings.json`, `REPORT.md`, and testcase artifacts.
 - Includes a line-based delta-debugging minimizer that preserves the observed failure class.
@@ -38,11 +39,11 @@ If `d8` is on your PATH, `-d8 d8` works. Import additional seed files by placing
 ## Output
 
 - `artifacts/interesting/`: first testcase for each distinct behavior signature.
-- `artifacts/crashes/`: one testcase per deduplicated crash/timeout/sanitizer signature.
+- `artifacts/crashes/`: one testcase per deduplicated crash/timeout/sanitizer/sandbox-violation signature.
 - `artifacts/findings.json`: machine-readable candidate findings.
 - `artifacts/REPORT.md`: human-readable summary.
 
-A normal JavaScript exception is **not** automatically treated as a native crash. Sanitizer output must match a canonical diagnostic and accompany a non-zero process exit. Each crash/timeout/sanitizer candidate is re-run three times by default; inconsistent results are dropped as unconfirmed. Set `-confirmations 2..10` to change the required total attempts. This reduces false positives but cannot guarantee zero false positives, and a confirmed crash is still not proof of a sandbox escape.
+A normal JavaScript exception is **not** automatically treated as a native crash or a sandbox violation. A `sandbox_violation` label requires a native crash plus a recognized diagnostic, then passes through reproducibility confirmation. Sanitizer output must match a canonical diagnostic and accompany a non-zero process exit. Each crash/timeout/sanitizer/sandbox-violation candidate is re-run three times by default; inconsistent results are dropped as unconfirmed. Set `-confirmations 2..10` to change the required total attempts. This reduces false positives but cannot guarantee zero false positives, and a confirmed crash is still not proof of a sandbox escape.
 
 ## Honest coverage status
 
