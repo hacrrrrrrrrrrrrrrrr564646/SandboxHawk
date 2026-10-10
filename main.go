@@ -44,6 +44,7 @@ type Result struct {
 	duration                time.Duration
 }
 
+var sandboxViolationPattern = regexp.MustCompile(`(?im)(sandbox violation detected|sandbox violation.*detected|sandbox.*corrupt)`)
 var sanitizerPattern = regexp.MustCompile(`(?im)(^==[0-9]+==ERROR: AddressSanitizer:|^SUMMARY: AddressSanitizer:|^.*runtime error: [[:alnum:]_]|^FATAL: ThreadSanitizer:|^CHECK failed:|^DCHECK failed:|^Received signal [0-9]+)`)
 var sanitizerPIDPattern = regexp.MustCompile(`==[0-9]+==`)
 var addressPattern = regexp.MustCompile(`0x[0-9a-fA-F]{6,}`)
@@ -354,12 +355,20 @@ func execute(binary, testcase string, timeout time.Duration) Result {
 }
 
 func classifyOutput(currentKind string, exitCode int, output string) string {
-	if exitCode != 0 && sanitizerPattern.MatchString(output) { return "sanitizer" }
+	// A sandbox-violation label requires both a failing process and a
+	// recognized V8-style diagnostic. Text emitted by a successful d8 run
+	// must never be enough to create this finding.
+	if exitCode != 0 && sandboxViolationPattern.MatchString(output) {
+		return "sandbox_violation"
+	}
+	if exitCode != 0 && sanitizerPattern.MatchString(output) {
+		return "sanitizer"
+	}
 	return currentKind
 }
 
 func isCandidateFailure(r Result) bool {
-	return r.kind == "crash" || r.kind == "timeout" || r.kind == "sanitizer"
+	return r.kind == "crash" || r.kind == "timeout" || r.kind == "sanitizer" || r.kind == "sandbox_violation"
 }
 
 func findingSignature(r Result) string {
