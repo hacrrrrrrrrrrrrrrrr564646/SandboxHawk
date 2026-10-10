@@ -358,7 +358,7 @@ func classifyOutput(currentKind string, exitCode int, output string) string {
 	// A sandbox-violation label requires both a failing process and a
 	// recognized V8-style diagnostic. Text emitted by a successful d8 run
 	// must never be enough to create this finding.
-	if exitCode != 0 && sandboxViolationPattern.MatchString(output) {
+	if currentKind == "crash" && exitCode != 0 && sandboxViolationPattern.MatchString(output) {
 		return "sandbox_violation"
 	}
 	if exitCode != 0 && sanitizerPattern.MatchString(output) {
