@@ -57,6 +57,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "sandboxhawk:", err)
 			os.Exit(1)
 		}
+	case "minimize":
+		if err := minimize(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "sandboxhawk:", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println("SandboxHawk dev (behavioral-feedback MVP)")
 	default:
@@ -70,6 +75,7 @@ func usage() {
 
 Usage:
   sandboxhawk scan -d8 /path/to/d8 -corpus ./testdata/seeds -out ./artifacts -runs 100
+  sandboxhawk minimize -d8 /path/to/d8 -input ./artifacts/crashes/crash.js -out ./minimized.js
   sandboxhawk version
 
 The runner executes only a locally supplied d8 binary. Use a disposable test
@@ -178,6 +184,70 @@ func scan(args []string) error {
 	}
 	fmt.Printf("Done. Unique candidate findings: %d. Report: %s\n", len(findings), filepath.Join(*outDir, "REPORT.md"))
 	return nil
+}
+
+
+func minimize(args []string) error {
+	fs := flag.NewFlagSet("minimize", flag.ContinueOnError)
+	d8 := fs.String("d8", "d8", "path to local d8 executable")
+	input := fs.String("input", "", "candidate testcase to minimize")
+	output := fs.String("out", "minimized.js", "destination for minimized testcase")
+	timeout := fs.Duration("timeout", 2*time.Second, "timeout per trial")
+	if err := fs.Parse(args); err != nil { return err }
+	if *input == "" { return errors.New("provide -input") }
+	binary, err := exec.LookPath(*d8)
+	if err != nil { return fmt.Errorf("cannot find d8 executable %q: %w", *d8, err) }
+	original, err := os.ReadFile(*input)
+	if err != nil { return err }
+	tmpDir, err := os.MkdirTemp("", "sandboxhawk-minimize-*")
+	if err != nil { return err }
+	defer os.RemoveAll(tmpDir)
+	trialPath := filepath.Join(tmpDir, "trial.js")
+	if err := os.WriteFile(trialPath, original, 0600); err != nil { return err }
+	baseline := execute(binary, trialPath, *timeout)
+	if baseline.kind != "crash" && baseline.kind != "sanitizer" && baseline.kind != "timeout" {
+		return fmt.Errorf("input does not reproduce a candidate crash, sanitizer finding, or timeout (kind=%s)", baseline.kind)
+	}
+	current := append([]byte(nil), original...)
+	lines := strings.SplitAfter(string(current), "\n")
+	if len(lines) < 2 { lines = []string{string(current)} }
+	granularity := 2
+	for granularity <= len(lines) && len(lines) > 1 {
+		chunk := (len(lines) + granularity - 1) / granularity
+		reduced := false
+		for start := 0; start < len(lines); start += chunk {
+			end := start + chunk
+			if end > len(lines) { end = len(lines) }
+			candidateLines := append([]string{}, lines[:start]...)
+			candidateLines = append(candidateLines, lines[end:]...)
+			if len(candidateLines) == 0 { continue }
+			candidate := strings.Join(candidateLines, "")
+			if err := os.WriteFile(trialPath, []byte(candidate), 0600); err != nil { return err }
+			res := execute(binary, trialPath, *timeout)
+			if sameFailure(baseline, res) {
+				lines = candidateLines
+				current = []byte(candidate)
+				reduced = true
+				break
+			}
+		}
+		if !reduced {
+			if granularity >= len(lines) { break }
+			granularity *= 2
+		} else if granularity > 2 {
+			granularity--
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(*output), 0755); err != nil { return err }
+	if err := os.WriteFile(*output, current, 0644); err != nil { return err }
+	fmt.Printf("Minimized %d bytes to %d bytes; preserved %s signature. Output: %s\n", len(original), len(current), baseline.kind, *output)
+	return nil
+}
+
+func sameFailure(want, got Result) bool {
+	if want.kind != got.kind { return false }
+	if want.kind == "timeout" { return got.timedOut }
+	return normalizeOutput(want.output) == normalizeOutput(got.output)
 }
 
 type sourceSeed struct {
