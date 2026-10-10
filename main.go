@@ -91,14 +91,15 @@ func scan(args []string) error {
 	outDir := fs.String("out", "artifacts", "output directory")
 	runs := fs.Int("runs", 100, "maximum executions")
 	timeout := fs.Duration("timeout", 2*time.Second, "timeout per execution")
+	confirmations := fs.Int("confirmations", 3, "total runs required to confirm a candidate failure")
 	maxBytes := fs.Int("max-bytes", 256*1024, "maximum seed size in bytes")
 	seed := fs.Int64("seed", time.Now().UnixNano(), "mutation PRNG seed")
 	keepOutput := fs.Bool("keep-output", false, "include output snippets in JSON findings")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *runs < 1 || *timeout <= 0 || *maxBytes < 1 {
-		return errors.New("runs, timeout, and max-bytes must be positive")
+	if *runs < 1 || *timeout <= 0 || *maxBytes < 1 || *confirmations < 2 || *confirmations > 10 {
+		return errors.New("runs, timeout, and max-bytes must be positive; confirmations must be between 2 and 10")
 	}
 	binary, err := exec.LookPath(*d8)
 	if err != nil {
@@ -123,6 +124,7 @@ func scan(args []string) error {
 	crashCount, novelCount := 0, 0
 	fmt.Printf("SandboxHawk | seeds=%d runs=%d timeout=%s\n", len(seeds), *runs, *timeout)
 	fmt.Println("Feedback: behavioral signatures (not native edge coverage).")
+	fmt.Printf("Triage: each candidate must reproduce identically in %d total runs.\\n", *confirmations)
 
 	for i := 0; i < *runs; i++ {
 		base := seeds[rng.Intn(len(seeds))]
@@ -146,24 +148,25 @@ func scan(args []string) error {
 			dst := filepath.Join(*outDir, "interesting", fmt.Sprintf("run-%06d.js", i+1))
 			_ = os.WriteFile(dst, source, 0644)
 		}
-		if res.kind == "crash" || res.kind == "timeout" || res.kind == "sanitizer" {
-			crashSig := hashString(res.kind + "|" + normalizeOutput(res.output) + "|" + fmt.Sprint(res.exitCode))
-			if !seenCrash[crashSig] {
-				seenCrash[crashSig] = true
-				crashCount++
-				name := fmt.Sprintf("%s-%s.js", res.kind, crashSig[:12])
-				dst := filepath.Join(*outDir, "crashes", name)
-				if err := os.WriteFile(dst, source, 0644); err != nil {
-					return err
+		if isCandidateFailure(res) {
+			confirmed, confirmationOutput := confirmFailure(binary, tmp.Name(), res, *timeout, *confirmations)
+			if !confirmed {
+				fmt.Printf("[unconfirmed] run=%d kind=%s seed=%s\\n", i+1, res.kind, filepath.Base(base.path))
+			} else {
+				crashSig := findingSignature(res)
+				if !seenCrash[crashSig] {
+					seenCrash[crashSig] = true
+					crashCount++
+					name := fmt.Sprintf("%s-%s.js", res.kind, crashSig[:12])
+					dst := filepath.Join(*outDir, "crashes", name)
+					if err := os.WriteFile(dst, source, 0644); err != nil { return err }
+					f := Finding{ID: crashSig[:12], Kind: res.kind, Seed: base.path, Testcase: dst,
+						Signature: crashSig, ExitCode: res.exitCode, TimedOut: res.timedOut,
+						Duration: res.duration.String(), CreatedAt: time.Now().UTC()}
+					if *keepOutput { f.Output = truncate(confirmationOutput, 8000) }
+					findings = append(findings, f)
+					fmt.Printf("[confirmed-%s] run=%d seed=%s signature=%s\\n", res.kind, i+1, filepath.Base(base.path), f.ID)
 				}
-				f := Finding{ID: crashSig[:12], Kind: res.kind, Seed: base.path, Testcase: dst,
-					Signature: crashSig, ExitCode: res.exitCode, TimedOut: res.timedOut,
-					Duration: res.duration.String(), CreatedAt: time.Now().UTC()}
-				if *keepOutput {
-					f.Output = truncate(res.output, 8000)
-				}
-				findings = append(findings, f)
-				fmt.Printf("[%s] run=%d seed=%s signature=%s\n", res.kind, i+1, filepath.Base(base.path), f.ID)
 			}
 		}
 		_ = os.Remove(tmp.Name())
@@ -341,14 +344,39 @@ func execute(binary, testcase string, timeout time.Duration) Result {
 		}
 	}
 	res.output = output.String()
-	if sanitizerPattern.MatchString(res.output) { res.kind = "sanitizer" }
-	if res.kind == "ok" || res.kind == "exception" {
-		res.signature = hashString(res.kind + "|" + normalizeOutput(res.output) + "|" + fmt.Sprint(res.exitCode))
-	} else {
-		res.signature = hashString(res.kind + "|" + normalizeOutput(res.output) + "|" + fmt.Sprint(res.exitCode))
+	// Text alone is not enough: JS can print sanitizer-looking strings.
+	// Require a non-zero exit before classifying a sanitizer diagnostic.
+	if res.exitCode != 0 && sanitizerPattern.MatchString(res.output) {
+		res.kind = "sanitizer"
 	}
+	res.signature = hashString(res.kind + "|" + normalizeOutput(res.output) + "|" + fmt.Sprint(res.exitCode))
 	return res
 }
+
+func isCandidateFailure(r Result) bool {
+	return r.kind == "crash" || r.kind == "timeout" || r.kind == "sanitizer"
+}
+
+func findingSignature(r Result) string {
+	if r.kind == "timeout" { return hashString("timeout") }
+	return hashString(r.kind + "|" + normalizeOutput(r.output) + "|" + fmt.Sprint(r.exitCode))
+}
+
+// A candidate is accepted only if each retry reproduces the same failure class
+// and, except for timeouts, the same normalized failure signature.
+func confirmFailure(binary, testcase string, baseline Result, timeout time.Duration, totalRuns int) (bool, string) {
+	outputs := []string{baseline.output}
+	for i := 1; i < totalRuns; i++ {
+		next := execute(binary, testcase, timeout)
+		if !sameFailure(baseline, next) {
+			return false, strings.Join(outputs, "\\n--- retry ---\\n")
+		}
+		if baseline.kind != "timeout" && findingSignature(baseline) != findingSignature(next) {
+			return false, strings.Join(outputs, "\\n--- retry ---\\n")
+		}
+		outputs = append(outputs, next.output)
+	}
+	return true, strings.Join(outputs, "\\n--- confirmed retry ---\\n")
 
 type limitWriter struct { w io.Writer; remaining int }
 func (l *limitWriter) Write(p []byte) (int, error) {
