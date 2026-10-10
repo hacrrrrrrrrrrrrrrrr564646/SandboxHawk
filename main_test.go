@@ -56,3 +56,22 @@ func TestCandidateFailureKinds(t *testing.T) {
 		}
 	}
 }
+
+func TestSandboxDiagnosticClassification(t *testing.T) {
+	diagnostic := "V8 sandbox violation detected"
+	if got := classifyOutput("ok", 0, diagnostic); got != "ok" {
+		t.Fatalf("successful process must not be classified: %q", got)
+	}
+	if got := classifyOutput("crash", 1, diagnostic); got != "sandbox_violation" {
+		t.Fatalf("recognized diagnostic on failing process should be separately classified, got %q", got)
+	}
+	if got := classifyOutput("crash", 1, "native process failure"); got != "crash" {
+		t.Fatalf("unrelated native crash must remain generic crash, got %q", got)
+	}
+}
+
+func TestSandboxDiagnosticEntersConfirmation(t *testing.T) {
+	if !isCandidateFailure(Result{kind: "sandbox_violation"}) {
+		t.Fatal("sandbox diagnostic should enter reproducibility confirmation")
+	}
+}
