@@ -425,7 +425,7 @@ func writeReport(path string, findings []Finding, runs, novel int) error {
 	b.WriteString("# SandboxHawk Run Report\n\n")
 	fmt.Fprintf(&b, "- Executions: %d\n- Novel behavioral signatures: %d\n- Unique candidate findings: %d\n\n", runs, novel, len(findings))
 	b.WriteString("> Behavioral novelty is not native edge coverage. Findings are candidates for manual reproduction; a timeout or crash does not by itself prove a V8 sandbox violation.\n\n")
-	if len(findings) == 0 { b.WriteString("No unique crash/timeout/sanitizer candidates were observed in this run.\n"); return os.WriteFile(path, []byte(b.String()), 0644) }
+	if len(findings) == 0 { b.WriteString("No unique crash, timeout, sanitizer, or sandbox-violation candidates were observed in this run.\n"); return os.WriteFile(path, []byte(b.String()), 0644) }
 	b.WriteString("| ID | Kind | Exit | Duration | Testcase |\n|---|---|---:|---:|---|\n")
 	for _, f := range findings { fmt.Fprintf(&b, "| %s | %s | %d | %s | `%s` |\n", f.ID, f.Kind, f.ExitCode, f.Duration, f.Testcase) }
 	return os.WriteFile(path, []byte(b.String()), 0644)
